@@ -48,10 +48,10 @@ def exchange_code_with_code(db: Session, agent_id: str, code: str):
 def store_credentials(db: Session, agent_id: str, credentials):
     access_token = credentials.token
     refresh_token = credentials.refresh_token
-    # Normalize expiry to naive UTC for consistent DB storage
+    # Ensure expiry is always timezone-aware UTC for TIMESTAMPTZ column
     expiry = credentials.expiry
-    if expiry and expiry.tzinfo is not None:
-        expiry = expiry.replace(tzinfo=None)
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=datetime.timezone.utc)
 
     encrypted_access = encrypt(access_token)
     encrypted_refresh = encrypt(refresh_token) if refresh_token else None

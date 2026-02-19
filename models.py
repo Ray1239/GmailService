@@ -9,7 +9,7 @@ class GmailAccount(Base):
     agent_id = Column(String, primary_key=True, index=True)
     access_token = Column(String, nullable=False)
     refresh_token = Column(String, nullable=True)
-    expiry = Column(DateTime, nullable=True)
+    expiry = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
