@@ -11,9 +11,11 @@ import datetime
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
 ]
-CLIENT_SECRETS_FILE = "credentials.json"
-REDIRECT_URI = "http://139.59.57.131.nip.io:8000/auth/callback"
+CLIENT_SECRETS_FILE = "credentials_for_local.json"
+REDIRECT_URI = "https://openclaw.marketsverse.com/auth/callback"
 
 def get_google_flow(state=None):
     return Flow.from_client_secrets_file(
@@ -26,6 +28,15 @@ def get_google_flow(state=None):
 def exchange_code_and_store(db: Session, user_id: str, authorization_response: str):
     flow = get_google_flow(state=user_id)
     flow.fetch_token(authorization_response=authorization_response)
+    credentials = flow.credentials
+    store_credentials(db, user_id, credentials)
+    return credentials
+
+
+def exchange_code_with_code(db: Session, user_id: str, code: str):
+    """Exchange a raw authorization code for tokens (headless flow)."""
+    flow = get_google_flow(state=user_id)
+    flow.fetch_token(code=code)
     credentials = flow.credentials
     store_credentials(db, user_id, credentials)
     return credentials

@@ -35,3 +35,8 @@ venv.bak/
 # Auth
 token_store/
 credentials.json
+credentials*.json
+
+# Calendar
+calendar_token.json
+calendar_credentials.json
