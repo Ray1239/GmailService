@@ -7,6 +7,9 @@ from security import encrypt, decrypt
 import os
 import json
 import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
@@ -15,7 +18,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
 ]
 CLIENT_SECRETS_FILE = "credentials_for_local.json"
-REDIRECT_URI = "https://openclaw.marketsverse.com/auth/callback"
+REDIRECT_URI = "http://localhost:8000/auth/callback"
 
 def get_google_flow(state=None):
     return Flow.from_client_secrets_file(
@@ -72,10 +75,17 @@ def store_credentials(db: Session, agent_id: str, credentials):
 def get_valid_credentials(db: Session, agent_id: str):
     account = db.query(GmailAccount).filter(GmailAccount.agent_id == agent_id).first()
     if not account:
+        logger.warning(f"No account found for agent_id={agent_id}")
         return None
 
     access_token = decrypt(account.access_token)
     refresh_token = decrypt(account.refresh_token) if account.refresh_token else None
+
+    # Ensure expiry is timezone-aware (PostgreSQL stores naive datetimes,
+    # but google-auth compares against timezone-aware UTC)
+    expiry = account.expiry
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=datetime.timezone.utc)
 
     creds = Credentials(
         token=access_token,
@@ -84,17 +94,21 @@ def get_valid_credentials(db: Session, agent_id: str):
         client_id=get_client_id_from_file(),
         client_secret=get_client_secret_from_file(),
         scopes=SCOPES,
-        expiry=account.expiry
+        expiry=expiry
     )
 
     if creds.expired and creds.refresh_token:
+        logger.info(f"Access token expired for agent_id={agent_id}, refreshing...")
         try:
             creds.refresh(Request())
-            # Update DB with new token
             store_credentials(db, agent_id, creds)
+            logger.info(f"Token refreshed successfully for agent_id={agent_id}")
         except Exception as e:
-            print(f"Error refreshing token: {e}")
+            logger.error(f"Token refresh failed for agent_id={agent_id}: {e}", exc_info=True)
             return None
+    elif creds.expired and not creds.refresh_token:
+        logger.error(f"Access token expired for agent_id={agent_id} but no refresh token available — re-auth required")
+        return None
 
     return creds
 
