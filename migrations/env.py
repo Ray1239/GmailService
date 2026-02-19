@@ -15,7 +15,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import Base
-from models import GmailAccount  # Import to register models
+from models import GmailAccount, AgentSecret  # Import to register models
 
 load_dotenv()
 

@@ -5,16 +5,16 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 
-def get_service(db: Session, user_id: str):
-    creds = get_valid_credentials(db, user_id)
+def get_service(db: Session, agent_id: str):
+    creds = get_valid_credentials(db, agent_id)
     if not creds:
         return None
     return build("calendar", "v3", credentials=creds)
 
 
-def list_events(db: Session, user_id: str, max_results: int = 10, time_min: Optional[str] = None):
+def list_events(db: Session, agent_id: str, max_results: int = 10, time_min: Optional[str] = None):
     """List upcoming calendar events."""
-    service = get_service(db, user_id)
+    service = get_service(db, agent_id)
     if not service:
         return None
 
@@ -43,9 +43,9 @@ def list_events(db: Session, user_id: str, max_results: int = 10, time_min: Opti
     ]
 
 
-def get_event(db: Session, user_id: str, event_id: str):
+def get_event(db: Session, agent_id: str, event_id: str):
     """Get a specific calendar event."""
-    service = get_service(db, user_id)
+    service = get_service(db, agent_id)
     if not service:
         return None
 
@@ -64,7 +64,7 @@ def get_event(db: Session, user_id: str, event_id: str):
 
 def create_event(
     db: Session,
-    user_id: str,
+    agent_id: str,
     summary: str,
     start_time: str,
     end_time: str,
@@ -73,7 +73,7 @@ def create_event(
     attendees: Optional[list] = None,
 ):
     """Create a new calendar event."""
-    service = get_service(db, user_id)
+    service = get_service(db, agent_id)
     if not service:
         return None
 
@@ -100,7 +100,7 @@ def create_event(
 
 def update_event(
     db: Session,
-    user_id: str,
+    agent_id: str,
     event_id: str,
     summary: Optional[str] = None,
     start_time: Optional[str] = None,
@@ -109,7 +109,7 @@ def update_event(
     location: Optional[str] = None,
 ):
     """Update an existing calendar event."""
-    service = get_service(db, user_id)
+    service = get_service(db, agent_id)
     if not service:
         return None
 
@@ -138,9 +138,9 @@ def update_event(
     }
 
 
-def delete_event(db: Session, user_id: str, event_id: str):
+def delete_event(db: Session, agent_id: str, event_id: str):
     """Delete a calendar event."""
-    service = get_service(db, user_id)
+    service = get_service(db, agent_id)
     if not service:
         return None
 
