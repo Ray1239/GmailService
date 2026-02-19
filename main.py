@@ -1,5 +1,5 @@
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # TODO: Remove this in production
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
@@ -37,6 +37,37 @@ class SecretUpsertRequest(BaseModel):
     secret_data: Dict[str, Any]
 
 
+class SendEmailRequest(BaseModel):
+    agent_id: str
+    to: str
+    subject: str
+    body: str
+    cc: Optional[str] = None
+    bcc: Optional[str] = None
+    html_body: Optional[str] = None
+
+
+class ReplyRequest(BaseModel):
+    agent_id: str
+    message_id: str
+    body: str
+    cc: Optional[str] = None
+    bcc: Optional[str] = None
+    html_body: Optional[str] = None
+
+
+class ModifyLabelsRequest(BaseModel):
+    agent_id: str
+    message_ids: List[str]
+    add_labels: Optional[List[str]] = None
+    remove_labels: Optional[List[str]] = None
+
+
+class BatchReadRequest(BaseModel):
+    agent_id: str
+    message_ids: List[str]
+
+
 # ── Auth endpoints ───────────────────────────────────────────────────────────
 
 @app.get("/auth/login")
@@ -51,7 +82,7 @@ def callback(request: Request, db: Session = Depends(get_db)):
     state = request.query_params.get("state")
     if not state:
         raise HTTPException(status_code=400, detail="State not found")
-        
+
     try:
         auth_service.exchange_code_and_store(db, state, str(request.url))
     except Exception as e:
@@ -80,34 +111,177 @@ def manual_callback(body: ManualCallbackRequest, db: Session = Depends(get_db)):
 # ── Email endpoints ──────────────────────────────────────────────────────────
 
 @app.get("/email/list")
-def list_emails(agent_id: str, max_results: int = 5, db: Session = Depends(get_db)):
+def list_emails(
+    agent_id: str,
+    max_results: int = 10,
+    query: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """List emails with optional Gmail search query.
+
+    The `query` param supports full Gmail search syntax, e.g.:
+    - `is:unread in:inbox`
+    - `from:someone@example.com`
+    - `subject:invoice newer_than:7d`
+    - `category:primary is:unread`
+    - `has:attachment`
+
+    Returns enriched summaries (subject, from, to, date, snippet, labels).
+    """
     try:
-        messages = gmail_service.list_messages(db, agent_id, max_results)
-        if messages is None:
-             raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
-        return {"messages": messages}
+        result = gmail_service.list_messages(db, agent_id, max_results, query=query)
+        if result is None:
+            raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/email/search")
+def search_emails(
+    agent_id: str,
+    query: str,
+    max_results: int = 10,
+    db: Session = Depends(get_db),
+):
+    """Search emails using Gmail query syntax.
+
+    Examples:
+    - `is:unread category:primary` — unread primary emails
+    - `from:boss@company.com newer_than:3d` — recent emails from boss
+    - `in:sent to:client@example.com` — sent emails to a client
+    - `subject:meeting after:2026/02/01` — meetings since Feb 1
+    """
+    try:
+        result = gmail_service.search_messages(db, agent_id, query, max_results)
+        if result is None:
+            raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/email/read")
 def read_email(agent_id: str, message_id: str, db: Session = Depends(get_db)):
+    """Read a full email — complete body (no truncation), all headers, labels,
+    thread_id, and attachment metadata."""
     try:
         email_data = gmail_service.get_message(db, agent_id, message_id)
         if email_data is None:
-             raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
+            raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
         return email_data
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/email/batch_read")
+def batch_read_emails(body: BatchReadRequest, db: Session = Depends(get_db)):
+    """Read multiple emails by ID in a single call."""
+    try:
+        results = gmail_service.batch_get_messages(db, body.agent_id, body.message_ids)
+        if results is None:
+            raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
+        return {"messages": results, "count": len(results)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/email/thread")
+def get_thread(agent_id: str, thread_id: str, db: Session = Depends(get_db)):
+    """Get all messages in a conversation thread."""
+    try:
+        thread = gmail_service.get_thread(db, agent_id, thread_id)
+        if thread is None:
+            raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
+        return thread
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/email/send")
-def send_email(agent_id: str, to: str, subject: str, body: str, db: Session = Depends(get_db)):
+def send_email(body: SendEmailRequest, db: Session = Depends(get_db)):
+    """Send an email with optional cc, bcc, and HTML body."""
     try:
-        result = gmail_service.send_message(db, agent_id, to, subject, body)
+        result = gmail_service.send_message(
+            db, body.agent_id, body.to, body.subject, body.body,
+            cc=body.cc, bcc=body.bcc, html_body=body.html_body,
+        )
         if result is None:
-             raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
-        return {"status": "sent", "message_id": result["id"]}
+            raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
+        return {"status": "sent", "message_id": result["id"], "thread_id": result.get("threadId")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/email/reply")
+def reply_to_email(body: ReplyRequest, db: Session = Depends(get_db)):
+    """Reply to an email in its thread with proper In-Reply-To/References headers."""
+    try:
+        result = gmail_service.reply_to_message(
+            db, body.agent_id, body.message_id, body.body,
+            cc=body.cc, bcc=body.bcc, html_body=body.html_body,
+        )
+        if result is None:
+            raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
+        return {"status": "sent", "message_id": result["id"], "thread_id": result.get("threadId")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/email/modify")
+def modify_email_labels(body: ModifyLabelsRequest, db: Session = Depends(get_db)):
+    """Add/remove labels on messages.
+
+    Common patterns:
+    - Archive:     remove_labels=["INBOX"]
+    - Mark read:   remove_labels=["UNREAD"]
+    - Mark unread: add_labels=["UNREAD"]
+    - Star:        add_labels=["STARRED"]
+    - Trash:       add_labels=["TRASH"]
+    """
+    try:
+        result = gmail_service.modify_labels(
+            db, body.agent_id, body.message_ids,
+            add_labels=body.add_labels, remove_labels=body.remove_labels,
+        )
+        if result is None:
+            raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/email/attachment")
+def get_attachment(
+    agent_id: str,
+    message_id: str,
+    attachment_id: str,
+    db: Session = Depends(get_db),
+):
+    """Download an attachment by its attachment_id (returned in email read results)."""
+    try:
+        result = gmail_service.get_attachment(db, agent_id, message_id, attachment_id)
+        if result is None:
+            raise HTTPException(status_code=401, detail="Agent not authenticated or token expired")
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
