@@ -12,8 +12,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.send",
 ]
-CLIENT_SECRETS_FILE = "credentials.json"
-REDIRECT_URI = "http://139.59.57.131.nip.io:8000/auth/callback"
+CLIENT_SECRETS_FILE = "credentials_for_local.json"
+REDIRECT_URI = "http://localhost/auth/callback"
 
 def get_google_flow(state=None):
     return Flow.from_client_secrets_file(
@@ -23,15 +23,24 @@ def get_google_flow(state=None):
         state=state,
     )
 
-def exchange_code_and_store(db: Session, user_id: str, authorization_response: str):
-    flow = get_google_flow(state=user_id)
+def exchange_code_and_store(db: Session, agent_id: str, authorization_response: str):
+    flow = get_google_flow(state=agent_id)
     flow.fetch_token(authorization_response=authorization_response)
     credentials = flow.credentials
-    store_credentials(db, user_id, credentials)
+    store_credentials(db, agent_id, credentials)
     return credentials
 
 
-def store_credentials(db: Session, user_id: str, credentials):
+def exchange_code_with_code(db: Session, agent_id: str, code: str):
+    """Exchange a raw authorization code for tokens (headless flow)."""
+    flow = get_google_flow(state=agent_id)
+    flow.fetch_token(code=code)
+    credentials = flow.credentials
+    store_credentials(db, agent_id, credentials)
+    return credentials
+
+
+def store_credentials(db: Session, agent_id: str, credentials):
     access_token = credentials.token
     refresh_token = credentials.refresh_token
     expiry = credentials.expiry
@@ -39,10 +48,10 @@ def store_credentials(db: Session, user_id: str, credentials):
     encrypted_access = encrypt(access_token)
     encrypted_refresh = encrypt(refresh_token) if refresh_token else None
 
-    account = db.query(GmailAccount).filter(GmailAccount.user_id == user_id).first()
+    account = db.query(GmailAccount).filter(GmailAccount.agent_id == agent_id).first()
     if not account:
         account = GmailAccount(
-            user_id=user_id,
+            agent_id=agent_id,
             access_token=encrypted_access,
             refresh_token=encrypted_refresh,
             expiry=expiry
@@ -58,8 +67,8 @@ def store_credentials(db: Session, user_id: str, credentials):
     db.refresh(account)
     return account
 
-def get_valid_credentials(db: Session, user_id: str):
-    account = db.query(GmailAccount).filter(GmailAccount.user_id == user_id).first()
+def get_valid_credentials(db: Session, agent_id: str):
+    account = db.query(GmailAccount).filter(GmailAccount.agent_id == agent_id).first()
     if not account:
         return None
 
@@ -80,7 +89,7 @@ def get_valid_credentials(db: Session, user_id: str):
         try:
             creds.refresh(Request())
             # Update DB with new token
-            store_credentials(db, user_id, creds)
+            store_credentials(db, agent_id, creds)
         except Exception as e:
             print(f"Error refreshing token: {e}")
             return None

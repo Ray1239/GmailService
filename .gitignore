@@ -35,3 +35,4 @@ venv.bak/
 # Auth
 token_store/
 credentials.json
+credentials*.json

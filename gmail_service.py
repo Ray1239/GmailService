@@ -4,22 +4,22 @@ from sqlalchemy.orm import Session
 import base64
 from email.mime.text import MIMEText
 
-def get_service(db: Session, user_id: str):
-    creds = get_valid_credentials(db, user_id)
+def get_service(db: Session, agent_id: str):
+    creds = get_valid_credentials(db, agent_id)
     if not creds:
         return None
     return build("gmail", "v1", credentials=creds)
 
-def list_messages(db: Session, user_id: str, max_results: int = 5):
-    service = get_service(db, user_id)
+def list_messages(db: Session, agent_id: str, max_results: int = 5):
+    service = get_service(db, agent_id)
     if not service:
         return None 
     
     results = service.users().messages().list(userId="me", maxResults=max_results).execute()
     return results.get("messages", [])
 
-def get_message(db: Session, user_id: str, message_id: str):
-    service = get_service(db, user_id)
+def get_message(db: Session, agent_id: str, message_id: str):
+    service = get_service(db, agent_id)
     if not service:
         return None
 
@@ -51,8 +51,8 @@ def get_message(db: Session, user_id: str, message_id: str):
         "body": body[:500] if body else ""
     }
 
-def send_message(db: Session, user_id: str, to: str, subject: str, body: str):
-    service = get_service(db, user_id)
+def send_message(db: Session, agent_id: str, to: str, subject: str, body: str):
+    service = get_service(db, agent_id)
     if not service:
         return None
 
