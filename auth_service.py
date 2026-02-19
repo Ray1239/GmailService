@@ -84,24 +84,26 @@ def get_valid_credentials(db: Session, agent_id: str):
     access_token = decrypt(account.access_token)
     refresh_token = decrypt(account.refresh_token) if account.refresh_token else None
 
-    # Ensure expiry is timezone-aware (PostgreSQL stores naive datetimes,
-    # but google-auth compares against timezone-aware UTC)
+    # Check expiry ourselves to avoid timezone mismatch inside google-auth.
+    # We normalise both sides to naive UTC before comparing.
     expiry = account.expiry
-    if expiry and expiry.tzinfo is None:
-        expiry = expiry.replace(tzinfo=datetime.timezone.utc)
+    is_expired = False
+    if expiry is not None:
+        expiry_naive = expiry.replace(tzinfo=None) if expiry.tzinfo else expiry
+        now_naive = datetime.datetime.utcnow()
+        is_expired = now_naive >= expiry_naive
 
-    creds = Credentials(
-        token=access_token,
-        refresh_token=refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=get_client_id_from_file(),
-        client_secret=get_client_secret_from_file(),
-        scopes=SCOPES,
-        expiry=expiry
-    )
-
-    if creds.expired and creds.refresh_token:
+    if is_expired and refresh_token:
+        # Token expired — build creds with refresh_token and refresh immediately
         logger.info(f"Access token expired for agent_id={agent_id}, refreshing...")
+        creds = Credentials(
+            token=access_token,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=get_client_id_from_file(),
+            client_secret=get_client_secret_from_file(),
+            scopes=SCOPES,
+        )
         try:
             creds.refresh(Request())
             store_credentials(db, agent_id, creds)
@@ -109,10 +111,22 @@ def get_valid_credentials(db: Session, agent_id: str):
         except Exception as e:
             logger.error(f"Token refresh failed for agent_id={agent_id}: {e}", exc_info=True)
             return None
-    elif creds.expired and not creds.refresh_token:
-        logger.error(f"Access token expired for agent_id={agent_id} but no refresh token available — re-auth required")
+        return creds
+
+    elif is_expired and not refresh_token:
+        logger.error(f"Access token expired for agent_id={agent_id} but no refresh token — re-auth required")
         return None
 
+    # Token still valid — do NOT pass expiry to avoid any timezone comparison
+    # inside google-auth or googleapiclient transport layer.
+    creds = Credentials(
+        token=access_token,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=get_client_id_from_file(),
+        client_secret=get_client_secret_from_file(),
+        scopes=SCOPES,
+    )
     return creds
 
 def get_client_id_from_file():
