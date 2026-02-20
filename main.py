@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List
 # TODO: Remove this in production
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 from fastapi import FastAPI, Request, Depends, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -108,7 +108,82 @@ def callback(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"status": "connected", "agent_id": state}
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Authentication Successful</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                margin: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            }
+            .container {
+                background: white;
+                padding: 40px;
+                border-radius: 8px;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+                text-align: center;
+                max-width: 400px;
+            }
+            .checkmark {
+                width: 80px;
+                height: 80px;
+                margin: 0 auto 20px;
+                background: #4CAF50;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 50px;
+                color: white;
+            }
+            h1 {
+                color: #333;
+                margin: 20px 0 10px 0;
+                font-size: 28px;
+            }
+            p {
+                color: #666;
+                font-size: 16px;
+                line-height: 1.6;
+                margin: 10px 0;
+            }
+            .agent-id {
+                background: #f5f5f5;
+                padding: 10px;
+                border-radius: 4px;
+                margin: 20px 0;
+                font-family: monospace;
+                font-size: 14px;
+                color: #333;
+                word-break: break-all;
+            }
+            .instruction {
+                color: #999;
+                font-size: 14px;
+                margin-top: 30px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="checkmark">✓</div>
+            <h1>You are Authenticated!</h1>
+            <p>Your Gmail account has been successfully connected.</p>
+            <div class="agent-id">Agent ID: """ + state + """</div>
+            <p class="instruction">You can now close this window and access your account.</p>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=html_content)
 
 
 @app.post("/auth/callback/manual")
